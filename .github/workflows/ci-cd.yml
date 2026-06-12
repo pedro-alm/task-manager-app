@@ -1,0 +1,112 @@
+name: CI/CD - Integração e Entrega Contínua
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  static-analysis:
+    name: Análise de Código Estático (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar ESLint
+        run: npm run lint
+
+  unit-tests:
+    name: Testes Unitários e Cobertura
+    runs-on: ubuntu-latest
+    needs: static-analysis
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Executar testes unitários com cobertura
+        run: npm test -- --ci
+
+      - name: Publicar relatório de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 15
+
+  ui-tests:
+    name: Testes de Interface (Selenium)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Instalar Google Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Executar testes de interface (Selenium)
+        run: npm run test:e2e
+
+  delivery:
+    name: Continuous Delivery - Empacotar aplicação
+    runs-on: ubuntu-latest
+    needs: [unit-tests, ui-tests]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependências de produção
+        run: npm ci --omit=dev
+
+      - name: Gerar pacote de distribuição
+        run: |
+          mkdir -p dist
+          zip -r "dist/app-${{ github.sha }}.zip" src package.json package-lock.json node_modules
+
+      - name: Publicar artefato de entrega
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build-${{ github.sha }}
+          path: dist/app-${{ github.sha }}.zip
+          retention-days: 30
